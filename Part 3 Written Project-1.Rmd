@@ -1,0 +1,550 @@
+---
+title: "Happiness Data Analysis Report"
+author: "Mason Hu"
+date: '2022-12-15'
+output:
+  pdf_document: default
+  html_document: default
+  font_size: 12
+---
+
+# INTRODUCTION #
+
+\paragraph{}
+Happiness is crucial to our livelihood. In fact, it IS our livelihood. In this research, I am going to answer: 
+
+- How does a country's GDP, corruption, and Gini coefficient, location, life expectancy, and its median age correlate to happiness? 
+
+- And how can we predict the world's happiness when a pandemic (COVID-19) hits?
+
+so that people will be better equipped with the ability to choose happiness, expect happiness, and change happiness, especially in globally influential events.
+
+\paragraph{}
+There are three papers that motivated my research: \textit{Trust and Deaths under COVID-19} accounts for the governmental factors in my research. \textit{Happiness in Czechia during the COVID-19 Pandemic} supports my conjecture that the location of a country is deterministic for their happiness. \textit{Why Countries Differ Greatly in the Effects of COVID-19} analyzed the causal relation of governmental indices on COVID impact, but it's not quite my research question. My research question is the reverse, where COVID deaths is a predictor instead of a response. The three papers coupled with my motivation, imply that the significance and necessity of this research are undeniable.
+
+---
+
+\hfill
+
+# METHODS #
+
+\begin{enumerate}
+
+\item \textbf{Dataset obtainment and splitting}
+\paragraph{}
+The dataset I use is obtained from kaggle by merging together "world-happiness-report-2021.csv" and "WHRData2021.csv". There are 146 complete observations indexed by the name of the country.
+\paragraph{}
+I split my dataset into training: 76 and testing: 70 so that there are enough data for the most important training part of our model. This is done at the beginning of all the process. But validation is done at the end. This and all further model training is done in Rstudio.
+
+\item \textbf{Preliminary EDA}
+\paragraph{}
+Preliminary assessment of linear model assumptions are done in the training dataset by plotting out univariate boxplots/barplot for the response:
+
+\begin{itemize}
+\item Ladder.score (measure of average happiness)
+\end{itemize}
+and for the predictors: 
+\begin{itemize}
+\item Logged.GDP.per.capita
+
+\item Healthy.life.expectancy
+
+\item Perceptions.of.corruption
+
+\item Median.age
+
+\item Gini.coefficient.of.income
+
+\item COVID.19.deaths.per.100.000.population.in.2020
+
+\item Europe.or.north.america (1 if the country is in Europe or North America and 0 if not)
+\end{itemize}
+
+and pairwise scatterplots with the responses are plotted to discover the linear relationship.
+
+\item \textbf{Initial model fitting and formal assumption checking}
+\paragraph{}
+I fitted an initial/full linear model to the seven predictors described above and plotted out the residuals against the fitted values and the seven predictors. I also plot out the qqplot of errors to assess normality. This way I can easily observe any violations to the four assumptions of linear regression:
+
+\begin{enumerate}
+\item uncorrelated errors
+\item normality of errors
+\item linearity
+\item constant variance
+\end{enumerate}
+
+\item \textbf{Additional condition checking model diagnostics}
+\paragraph{}
+After (If) I observe assumption violations in the residual plots, I check the 2 additional conditions to see if the residual plot tells us exactly what and how to remedy the assumptions.
+
+Condition 1: I plotted the true versus fitted values and check if they are resemble the identity function relationship. 
+
+Condition 2: I plotted the pairwise scatterplots for the 7 predictors and observe if there are patterns other than linearity between them.
+\paragraph{}
+If these conditions hold, as remedy, I either apply variance stabilizing transformations to violation of constant variance. Or I apply box-cox transformations to violation of linearity or normality of errors. I will denote the transformed model as the new model.
+\paragraph{}
+However, if these conditions fail to hold, there is no guarantee of the validity of our transformation and we will have to note that as a limitation.
+
+\item \textbf{Partial F tests and VIF}
+\paragraph{}
+I do a partial F test on the variables that does not indicate a significant linear relationship as specifies by the T-test in the linear model summary and remove the variables to get a reduced model if the anova partial F test DOES NOT reject the null hypothesis. If it does, I retrieve some of the variables and see if the new reduced model rejects the null hypothesis in the new partial F test.
+\paragraph{}
+I also do VIF tests to see if there's variance inflating predictors that are multicollinear, and can try further reducing the model.
+\paragraph{}
+After reducing the model I will ONCE AGAIN check the model assumptions by plotting out the new relevant plots.
+
+\item \textbf{Checking for outliers, influential points, and leverages}
+\paragraph{}
+After reducing the model, I check for leverages, influential points, and outliers. I check the leverages using the Hat matrix, outliers using the standardized residuals, and influential points using the following three methods: Cooks distance (influence on the regression line as a whole), DFFITS (influence on its own fitted value), and DFBETAS (influence on the coefficients from $\beta_0$ to $\beta_n$).
+
+\item \textbf{Goodness of model}
+\paragraph{}
+As the ultimate model selection process, I use adjusted coefficient of determination $R^2$, $AIC$, $AIC_C$, and $BIC$ on six of the previous models and summarize their results. The model with the highest in $R^2$, lowest in $AIC$, $AIC_C$, and $BIC$ will be the best model. And I will if the four different tests favor different models, I will favor my variable of interest--Log.death and Europe.or.north.america--as a tie breaker.
+
+\item \textbf{Final model validation and assumption check}
+\paragraph{}
+Finally I choose the best one/two model(s) in the previous part and perform model validation by fitting the same model to the testing dataset and compare their characteristics side-by-side. I will compare model coefficients and various characteristics like $R^2$ and VIF and influential points. After this step, I compare the validity based on the differences in training and testing. I will then check the model assumptions once again and I can finally declare my final model.
+
+
+\end{enumerate}
+
+---
+
+\hfill
+
+# RESULTS #
+
+## Variable visualizations
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7, fig.width=14, results = 'hide'}
+library(tidyverse)
+library(gridExtra)
+
+
+# Loading and merging datasets
+h1<-read.csv("world-happiness-report-2021.csv")
+h2<-read.csv("WHRData2021.csv")
+happy<-merge(h1, h2, by="Country.name")
+
+
+# Data transforming
+happy$Europe.or.north.america <- ifelse(happy$Regional.indicator=="Western Europe" | happy$Regional.indicator=="North America and ANZ" | happy$Regional.indicator=="Central and Eastern Europe", 1, 0)
+names(happy)
+
+
+# Selecting the columns of use
+happy <- happy[,c(1,3,7,9,12,23,24,31,37)]
+
+# Data cleaning process, removed all columns with any missing data
+happy <- happy %>% filter(complete.cases(happy)==TRUE)
+
+h=happy %>% ggplot(aes(y=Ladder.score))+
+  geom_boxplot(fill='#A4A4A4', color="darkred")+labs(y="Ladder score")
+
+a=happy %>% ggplot(aes(y=Median.age)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="Median age")
+b=happy %>% ggplot(aes(y=Healthy.life.expectancy)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="Healthy life expectancy")
+c=happy %>% ggplot(aes(y=COVID.19.deaths.per.100.000.population.in.2020)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="COVID-19 deaths")
+d=happy %>% ggplot(aes(y=Logged.GDP.per.capita)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="Logged GDP per capita")
+e=happy %>% ggplot(aes(x=Europe.or.north.america)) + geom_bar(fill='#A4A4A4', color="#907590")+labs(x="Europe or NA")
+f=happy %>% ggplot(aes(y=Gini.coefficient.of.income)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="Gini coeffiecient of income")
+g=happy %>% ggplot(aes(y=Perceptions.of.corruption)) + geom_boxplot(fill='#A4A4A4', color="#907590")+labs(y="Perception of Corruption")
+grid.arrange(a,b,c,d,e,f,g,h,nrow=1,ncol=8)
+
+```
+
+Three things to highlight:
+\begin{itemize}
+\item COVID-19 deaths is extremely right-skewed. This is my potential subject of future transformation.
+\item Perception of corruption is relatively right skewed. Not necessarily a subject of transformation but can possibly violate assumptions.
+\item Europe or North America is also not evenly distributed. This is inevitable since there are less countries in the northern hemisphere than the southern hemisphere.
+\end{itemize}
+
+(Preliminary randomness check of training and testing datasets is provided in appendix.)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=4, fig.width=7, results = 'hide'}
+
+# Dividing up the data into testing (20 rows) and training (126 rows) datasets. 
+set.seed(6666)
+te <- sample(x = c(1:146), size = 70, replace = F)
+tr <- setdiff(c(1:146), te)
+happy_training <- happy[tr,]
+happy_testing <- happy[te,]
+
+
+# Preliminary checking if the two datasets are randomly divided with similar attirbutes.
+trm <- apply(happy_testing[,c(2:9)], 2, mean)
+tem <- apply(happy_testing[,c(2:9)], 2, sd)
+trsd <- apply(happy_training[,c(2:9)], 2, mean)
+tesd <- apply(happy_training[,c(2:9)], 2, sd)
+```
+## I fitted the initial model
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7, fig.width=7, results='hide'}
+first_model <- lm(Ladder.score ~ Median.age+Healthy.life.expectancy+Logged.GDP.per.capita+Gini.coefficient.of.income+Perceptions.of.corruption+Europe.or.north.america+COVID.19.deaths.per.100.000.population.in.2020, data = happy_training)
+summary(first_model)
+coefs<-coef(first_model)
+
+```
+
+$$\hat{y}_i=-2.815335-0.050050M_i+0.061812H_i+0.693651L_i-0.001176G_i-0.844528P_i+0.365679E_i+0.000217C_i$$
+where M,H,L,G,P,E,C are the intials of the seven predictors.
+
+## I checked assumptions
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=6, results='hide'}
+
+# Assumption checking
+attributes(first_model)
+r <- first_model$residuals
+fit <- first_model$fitted.values
+par(mfrow=c(3,3))
+
+# Creating the residual versus fitted value plot
+plot(r ~ fit, main="Residuals vs Fitted Values", xlab="Fitted Values", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+# Plotting the residuals versus the predictors plot
+plot(r ~ happy_training$Median.age, main="Residuals vs Median Age", xlab="Median age", ylab="Residuals",  pch= 21, col="#908090", bg ="#908090")
+plot(r ~ happy_training$Healthy.life.expectancy, main="Residuals vs Life expectancy", xlab="Expectancy", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r ~ happy_training$Logged.GDP.per.capita, main="Residuals vs Log GDP per cap", xlab="Log GDP per cap", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r ~ happy_training$Gini.coefficient.of.income, main="Residuals vs Gini coefficient", xlab="Gini coeffiecient", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r ~ happy_training$Perceptions.of.corruption, main="Residuals vs Corruption", xlab="Corruption", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r ~ happy_training$Europe.or.north.america, main="Residuals vs Europe or NA", xlab="Europe or NA", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r ~ happy_training$COVID.19.deaths.per.100.000.population.in.2020, main="Residuals vs COVID-19 deaths", xlab="COVID-19 death", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+qqnorm(r, pch = 21, col="#908090", bg= "#908090", main = "Residual versus normal quantile", ylab="Residual quantiles")
+qqline(r, col="darkred")
+```
+
+There are no obvious patterns in the first six residual plots. 
+\begin{itemize}
+\item For the residuals vs Europe or North America plot, there also seems to be violation of constant variance. This inevitability was discussed in my EDA, but I will still address it in the limitations. 
+\item For the residuals vs COVID-19 death plot, there seems to be a mild fanning pattern. This is indication of violation of constant variance. I will proceed to perform remedies. However, I first need to check two additional conditions.
+\end{itemize}
+
+## Additional conditions checking
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=6}
+# Additional conditions checking
+
+pairs(happy_training[,3:9], 
+      main = "Pairwise scatterplots between predictors",
+      pch = 21, col="#908090", bg="#908090")
+```
+\paragraph{}
+The left pairwise scatterplot checks our condition 2. There is no obvious patterns besides linear relationship. The appendix plot (Fitted values versus true response) verifies condition 1: fitted values and true values are roughly is related via identity function.
+\paragraph{}
+So our residual plots are helpful in determining the violated assumptions. According to the above discussion, we should perform a variance stabilizing transformation.
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=6, results='hide'}
+library(car)
+happy$COVID.19.deaths.per.100.000.population.in.2020 <- ifelse(happy$COVID.19.deaths.per.100.000.population.in.2020 == 0, 0.001, happy$COVID.19.deaths.per.100.000.population.in.2020)
+summary(powerTransform(cbind(happy[, c(7)])))
+
+happy_new <- happy
+happy_new$Log.death <- ifelse(happy_new$COVID.19.deaths.per.100.000.population.in.2020 == 0, -10, log(happy_new$COVID.19.deaths.per.100.000.population.in.2020))
+happy_new <- happy_new[,-c(6)]
+happy_training_new <- happy_new[tr,]
+happy_testing_new <- happy_new[te,]
+
+# Fitting the transformed model
+transformed_model <- lm(Ladder.score ~ Median.age+Healthy.life.expectancy+Logged.GDP.per.capita+Gini.coefficient.of.income+Perceptions.of.corruption+Europe.or.north.america+Log.death, data = happy_training_new)
+summary(transformed_model)
+```
+## I transformed COVID-19 deaths
+\paragraph{}
+By observing the patterns and by result from a power transformation test: $$\text{Likelihood ratio test that transformation parameter is equal to 0 (log transformation)}$$ I conclude I should take the natural logarithm of COVID-19 death and store it in Log.death. The new transformed linear model satisfy the assumptions. See appendix(after log transform).
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# partial F test
+model_reduced_1 <- lm(Ladder.score ~ Healthy.life.expectancy+Logged.GDP.per.capita+Europe.or.north.america, data = happy_training_new)
+
+anova(model_reduced_1, transformed_model)
+
+model_reduced_2 <- lm(Ladder.score ~ Healthy.life.expectancy+Logged.GDP.per.capita+Europe.or.north.america+Median.age+Log.death, data = happy_training_new)
+
+anova(model_reduced_2, transformed_model)
+summary(model_reduced_2)
+```
+## I reduced the model
+\paragraph{}
+I tried removing four relatively insignificant predictors(M, G, C, and my variable of interest: Logged COVID deaths) $$\text{Pr(>F)=0.001869}$$ which rejects the null hypothesis that all removed coefficients should be zero, So at least one of the variables should not have been removed.
+\paragraph{}
+Then I tried removing only two insignificant predictors(G, C) and performed partial F test. $$\text{Pr(>F)=0.263}$$ failing to reject the null hypothesis that all removed coefficients are zero, meaning I can safely remove both Gini coefficient and Corruption from my model.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Identifying problematic observations
+
+# values to use in cutoffs
+n <- nrow(happy_training_new)
+p <- length(coef(model_reduced_2))-1
+
+# define the cutoffs we will use
+Hcut <- 2*((p+1)/n)
+DFFITScut <- 2*sqrt((p+1)/n)
+DFBETAcut <- 2/sqrt(n)
+Dcut <- qf(0.5, p+1, n-p-1)
+
+# identify the leverage points
+h <- hatvalues(model_reduced_2)
+which(h>Hcut)
+
+# identify the outliers
+r <- rstandard(model_reduced_2)
+which(r < -2 | r > 2)
+
+# identify influential points by Cook's distance
+D <- cooks.distance(model_reduced_2)
+lengthD<-length(which(D > Dcut))
+
+# identify influential points by DFFITS
+fits <- dffits(model_reduced_2)
+lengthfits<-length(which(abs(fits) > DFFITScut))
+
+# identify influential points by DFBETAS
+betas <- dfbetas(model_reduced_2)
+dim(betas)
+
+for(i in 1:6){
+  print(paste0("Beta ", i-1))
+  print(which(abs(betas[,i]) > DFBETAcut))
+}
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Assessing multicollinearity
+vif(model_reduced_2)
+
+
+model_reduced_2_vif_1 <- lm(Ladder.score~Healthy.life.expectancy+Logged.GDP.per.capita+Europe.or.north.america+Log.death, data=happy_training_new)
+v1<-vif(model_reduced_2_vif_1)
+v1[3]<-{v1[3]^{1/{2*3}}}^2
+v1
+summary(model_reduced_2_vif_1)
+
+model_reduced_2_vif_2 <- lm(Ladder.score~Healthy.life.expectancy+Median.age+Europe.or.north.america+Log.death, data=happy_training_new)
+v2<-vif(model_reduced_2_vif_2)
+v2[3]<-{v2[3]^{1/{2*3}}}^2
+v2
+summary(model_reduced_2_vif_2)
+```
+
+## I chose the best model
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Goodness of fit
+select = function(model, n)
+{
+  SSres <- sum(model$residuals^2)
+  Rsq <- summary(model)$r.squared
+  Rsq_adj <- summary(model)$adj.r.squared
+  p <- length(model$coefficients) - 1
+  AIC <- n*log(SSres/n) + 2*p     # you could also use AIC()
+  AICc <- AIC + (2*(p+2)*(p+3)/(n-p-1))
+  BIC <- n*log(SSres/n) + (p+2)*log(n)    # could also use BIC()
+  res <- c(SSres, Rsq, Rsq_adj, AIC, AICc, BIC)
+  names(res) <- c("SSres", "Rsq", "Rsq_adj", "AIC", "AIC_c", "BIC")
+  return(res)
+}
+
+
+ss1<-select(model_reduced_2_vif_1, nrow(happy_training_new))
+ss3<-select(model_reduced_2, nrow(happy_training_new))
+ss4<-select(transformed_model, nrow(happy_training_new))
+ss5<-select(first_model,nrow(happy_training_new))
+ss2<-select(model_reduced_2_vif_2, nrow(happy_training_new))
+```
+Model           | Adjusted $R^2$ | AIC | BIC 
+----------------|----------------|-----|-----
+Removed(M, G, P)| `r ss1[3]` | `r ss1[4]` | `r ss1[6]`
+Removed(L, G, P)| `r ss2[3]` | `r ss2[4]` | `r ss2[6]`
+Removed(G, P)| `r ss3[3]` | `r ss3[4]` | `r ss3[6]`
+Transformed(Unreduced)| `r ss4[3]` | `r ss4[4]` | `r ss4[6]`
+First/Full| `r ss5[3]` | `r ss5[4]` | `r ss5[6]`
+
+\paragraph{}
+According to our adjusted $R^2$, AIC and BIC, all models have their lengths are shortcomings. In light of my research question, prediction for happiness in future pandemic is more important than explaining the correlation. Therefore, I choose to include and Median age and Log.death and choose the model with the highest $R^2$, but also higher AIC , BIC.
+
+
+## I validated the final model
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+tmodel_reduced_2 <- lm(Ladder.score ~ Healthy.life.expectancy+Logged.GDP.per.capita+Europe.or.north.america+Median.age+Log.death, data = happy_testing_new)
+
+vif(tmodel_reduced_2)
+
+tcoefs<-coef(tmodel_reduced_2)
+tses <- round(summary(tmodel_reduced_2)$coefficients[,2], 3)
+
+tn <- nrow(happy_testing_new)
+tp <- length(coef(tmodel_reduced_2))-1
+
+# define the cutoffs we will use
+tHcut <- 2*((tp+1)/tn)
+tDFFITScut <- 2*sqrt((tp+1)/tn)
+tDFBETAcut <- 2/sqrt(tn)
+tDcut <- qf(0.5, tp+1, tn-tp-1)
+
+# identify the leverage points
+th <- hatvalues(tmodel_reduced_2)
+which(th>tHcut)
+
+# identify the outliers
+tr <- rstandard(model_reduced_2)
+which(tr < -2 | tr > 2)
+
+# identify influential points by Cook's distance
+tD <- cooks.distance(tmodel_reduced_2)
+tlengthD<-length(which(tD > tDcut))
+
+# identify influential points by DFFITS
+tfits <- dffits(tmodel_reduced_2)
+tlengthfits<-length(which(abs(tfits) > tDFFITScut))
+
+# identify influential points by DFBETAS
+tbetas <- dfbetas(model_reduced_2)
+dim(tbetas)
+
+for(i in 1:6){
+  print(paste0("Beta ", i-1))
+  print(which(abs(tbetas[,i]) > tDFBETAcut))
+}
+
+ses <- round(summary(model_reduced_2)$coefficients[,2], 3)
+
+summary(model_reduced_2)
+```
+
+Characteristics   | Removed(G, P) train | Removed(G, P) test
+------------------|---------------------|--------------------
+no. Cooks Distance| `r lengthD` |`r tlengthD`
+no. DFFITS |`r lengthfits` |`r tlengthfits`
+Largest VIF |7.159883 | 6.392747
+Violation | None* | None*
+------------------|---------------------|------------------
+Intercept |`r coefs[1]` $\pm$ `r ses[1]`(\*)| `r tcoefs[1]`$\pm$ `r tses[1]`
+Healthy.life.expectancy|`r coefs[2]` $\pm$ `r ses[2]`(\*)| `r tcoefs[2]`$\pm$ `r tses[2]`(\*)
+Logged.GDP.per.capita|`r coefs[3]` $\pm$ `r ses[3]`(\*)| `r tcoefs[3]`$\pm$ `r tses[3]`
+Europe.or.north.america|`r coefs[4]` $\pm$ `r ses[4]`(\*)| `r tcoefs[4]`$\pm$ `r tses[4]`(\*)
+Median.age|`r coefs[5]` $\pm$ `r ses[5]`(\*)| `r tcoefs[5]`$\pm$ `r tses[5]`
+Log.death|`r coefs[6]` $\pm$ `r ses[6]`(\.)| `r tcoefs[6]`$\pm$ `r tses[6]`
+
+
+*model assumptions are verified in appendix (process same as the first model)
+
+\paragraph{}
+This validation table exhibits similar traits characteristics when it comes to problematic points or variance inflation factor. However, the model coefficients have drastically different results. This is mainly because this is a small dataset and the training and testing data could have potentially altered the results drastically.
+
+
+---
+
+\hfill
+
+# DISCUSSIONS
+\paragraph{}
+The final model (assumption checked) is as follows (C for COVID death(logged))
+
+$$\hat{y}_i=-0.50791152+0.07135067H_i+0.15846156L_i+1.02059571E_i-0.01288123M_i-0.01014049C_i$$
+\paragraph{}
+This shows that a country's average happiness is positively correlated with Life expectancy, GDP, and negatively correlated with Age and death in pandemics. Also you will be happier if you live in Europe.
+
+\paragraph{}
+This model also answers my second question of predicting happiness in future pandemics: for every unit increase in the logarithm of the country's death count, everybody in that country will be 0.01 less happy on average.
+
+\paragraph{}
+However, there are some limitations:
+\begin{enumerate}
+
+\item The main limitation of this analysis is that this dataset is too small, but it is unchangeable since there are only almost 200 countries on earth. This makes our validation process hard and unreliable.
+
+\item the disproportionate distribution of countries in Europe or North America versus not is also inevitable. But it might not influence our model too much since the violations is not terrible.
+
+\item there is a lot of (10) leverage point (countries like Cambodia that are uniques and extreme in the collected data) meaning these 10 countries could be dominating the whole model in the future as they become more extreme.
+
+\end{enumerate}
+
+---
+
+\hfill
+
+# APPENDIX #
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=5, fig.width=10, results ='hide'}
+par(mfrow=c(1,2))
+plot(fit ~ happy_training$Ladder.score, main="Fitted values versus true response", xlab="Ladder score", ylab="Fitted values", pch = 21, col = "#908090", bg="#908090")
+
+# Checking the transformed model assumptions
+attributes(transformed_model)
+r_t <- transformed_model$residuals
+fit_t <- transformed_model$fitted.values
+
+plot(r_t ~ happy_training_new$Log.death, pch = 21, main="After log transform", ylab="Residuals", xlab="Logged COVID-19 deaths", bg="#908090", col="#908090")
+```
+
+## Final model assumption check (training upper, testing lower)
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=3, fig.width=14, results='hide'}
+
+# Assumption checking
+attributes(model_reduced_2)
+r22 <- model_reduced_2$residuals
+fit22 <- model_reduced_2$fitted.values
+par(mfrow=c(1,7))
+
+# Creating the residual versus fitted value plot
+plot(r22 ~ fit22, main="Residuals vs Fitted Values", xlab="Fitted Values", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+# Plotting the residuals versus the predictors plot
+plot(r22 ~ happy_training_new$Median.age, main="Residuals vs Median Age", xlab="Median age", ylab="Residuals",  pch= 21, col="#908090", bg ="#908090")
+plot(r22 ~ happy_training_new$Healthy.life.expectancy, main="Residuals vs Life expectancy", xlab="Expectancy", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r22 ~ happy_training_new$Logged.GDP.per.capita, main="Residuals vs Log GDP per cap", xlab="Log GDP per cap", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r22 ~ happy_training_new$Europe.or.north.america, main="Residuals vs Europe or NA", xlab="Europe or NA", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(r22 ~ happy_training_new$Log.death, main="Residuals vs Logged COVID-19 deaths", xlab="Logged COVID-19 death", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+qqnorm(r22, pch = 21, col="#908090", bg= "#908090", main = "Residual versus normal quantile", ylab="Residual quantiles")
+qqline(r22, col="darkred")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=3, fig.width=14, results='hide'}
+
+# Assumption checking
+attributes(tmodel_reduced_2)
+tr22 <- tmodel_reduced_2$residuals
+tfit22 <- tmodel_reduced_2$fitted.values
+par(mfrow=c(1,7))
+
+# Creating the residual versus fitted value plot
+plot(tr22 ~ tfit22, main="Residuals vs Fitted Values", xlab="Fitted Values", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+# Plotting the residuals versus the predictors plot
+plot(tr22 ~ happy_testing_new$Median.age, main="Residuals vs Median Age", xlab="Median age", ylab="Residuals",  pch= 21, col="#908090", bg ="#908090")
+plot(tr22 ~ happy_testing_new$Healthy.life.expectancy, main="Residuals vs Life expectancy", xlab="Expectancy", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(tr22 ~ happy_testing_new$Logged.GDP.per.capita, main="Residuals vs Log GDP per cap", xlab="Log GDP per cap", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(tr22 ~ happy_testing_new$Europe.or.north.america, main="Residuals vs Europe or NA", xlab="Europe or NA", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+plot(tr22 ~ happy_testing_new$Log.death, main="Residuals vs Logged COVID-19 deaths", xlab="Logged COVID-19 death", pch= 21, ylab="Residuals", col="#908090", bg ="#908090")
+
+qqnorm(tr22, pch = 21, col="#908090", bg= "#908090", main = "Residual versus normal quantile", ylab="Residual quantiles")
+qqline(tr22, col="darkred")
+```
+
+## Mean and standard error variables of randomized training and testing datasets
+Variable | mean (s.d.) in training | mean (s.d.) in test
+----------------------------|-------------------------|--------------------
+`r names(happy_testing)[2]` | `r round(trm[1], 3)` (`r round(trsd[1], 3)`) | `r round(tem[1], 3)` (`r round(tesd[1], 3)`)
+`r names(happy_testing)[3]` | `r round(trm[2],3)` (`r round(trsd[2],3)`) | `r round(tem[2],3)` (`r round(tesd[2],3)`)
+`r names(happy_testing)[4]` | `r round(trm[3],3)` (`r round(trsd[3],3)`) | `r round(tem[3],3)` (`r round(tesd[3],3)`)
+`r names(happy_testing)[5]` | `r round(trm[4],3)` (`r round(trsd[4],3)`) | `r round(tem[4],3)` (`r round(tesd[4],3)`)
+COVID-19 deaths | `r round(trm[5],3)` (`r round(trsd[5],3)`) | `r round(tem[5],3)` (`r round(tesd[5],3)`)
+`r names(happy_testing)[7]` | `r round(trm[6],3)` (`r round(trsd[6],3)`) | `r round(tem[6],3)` (`r round(tesd[6],3)`)
+`r names(happy_testing)[8]` | `r round(trm[7],3)` (`r round(trsd[7],3)`) | `r round(tem[7],3)` (`r round(trsd[7],3)`)
+`r names(happy_testing)[9]` | `r round(trm[8],3)` (`r round(trsd[8],3)`) | `r round(tem[8],3)` (`r round(tesd[8],3)`)
+
+---
+
+\hfill
+
+# REFERENCES        
+
+\paragraph{}
+by John F. Helliwell from UBC. World Happiness, Trust and Deaths under COVID-19
+https://www.researchgate.net/profile/Shun-Wang-31/publication/350511691_World_Happiness_Trust_and_Deaths_under_COVID-19/links/6063d19b299bf173677dc90c/World-Happiness-Trust-and-Deaths-under-COVID-19.pdf
+
+\paragraph{}
+by František Petrovič:  Happiness in Czechia during the COVID-19 Pandemic, https://www.mdpi.com/2071-1050/13/19/10826/htm
+
+\paragraph{}
+Why Countries Differ Greatly in the Effects of COVID-19 https://www.researchgate.net/profile/Victor-Dementiev/publication/355224679_Why_Countries_Differ_Greatly_in_the_Effects_of_COVID-19/links/6176cd86a767a03c14b0ee7d/Why-Countries-Differ-Greatly-in-the-Effects-of-COVID-19.pdf?_sg%5B0%5D=started_experiment_milestone&origin=journalDetail
+
+\paragraph{}
+Datasets: Kaggle “world happiness report 2021” and Kaggle “WHRdata2021”
